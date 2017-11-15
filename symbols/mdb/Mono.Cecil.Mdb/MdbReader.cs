@@ -144,7 +144,7 @@ namespace Mono.Cecil.Mdb {
 
 			info.scope = scopes [0] = new ScopeDebugInformation {
 				Start = new InstructionOffset (0),
-				End = new InstructionOffset (info.code_size),
+				End = new InstructionOffset(),
 			};
 
 			foreach (var block in blocks) {

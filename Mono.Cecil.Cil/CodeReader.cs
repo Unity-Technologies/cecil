@@ -162,10 +162,12 @@ namespace Mono.Cecil.Cil {
 			var start_instruction = GetInstruction (scope.Start.Offset);
 			scope.Start = new InstructionOffset (start_instruction);
 
-			var end_instruction = GetInstruction (scope.End.Offset);
-			scope.End = end_instruction != null
-				? new InstructionOffset (end_instruction)
-				: new InstructionOffset ();
+			if (!scope.End.IsEndOfMethod) {
+				var end_instruction = GetInstruction (scope.End.Offset);
+				scope.End = end_instruction != null
+					? new InstructionOffset (end_instruction)
+					: new InstructionOffset ();
+			}
 
 			if (!scope.variables.IsNullOrEmpty ()) {
 				for (int i = 0; i < scope.variables.Count; i++) {
