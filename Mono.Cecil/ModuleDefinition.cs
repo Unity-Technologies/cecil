@@ -238,6 +238,8 @@ namespace Mono.Cecil {
 			set { key_pair = value; }
 		}
 #endif
+
+        public bool DeterministicGuid { get; set; }
 	}
 
 #endif
