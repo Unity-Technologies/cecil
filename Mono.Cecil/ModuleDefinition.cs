@@ -239,7 +239,7 @@ namespace Mono.Cecil {
 		}
 #endif
 
-        public bool DeterministicGuid { get; set; }
+		public bool DeterministicMvid { get; set; }
 	}
 
 #endif

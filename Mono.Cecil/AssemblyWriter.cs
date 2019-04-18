@@ -110,7 +110,7 @@ namespace Mono.Cecil {
 				module.Attributes |= ModuleAttributes.StrongNameSigned;
 			}
 #endif
-            if (parameters.DeterministicGuid)
+            if (parameters.DeterministicMvid)
 				module.Mvid = Guid.Empty;
 
 			using (var symbol_writer = GetSymbolWriter (module, fq_name, symbol_writer_provider, parameters)) {
@@ -125,7 +125,7 @@ namespace Mono.Cecil {
 				if (parameters.StrongNameKeyPair != null)
 					CryptoService.StrongName (stream.value, writer, parameters.StrongNameKeyPair);
 #endif
-                if (parameters.DeterministicGuid) {
+                if (parameters.DeterministicMvid) {
 						module.Mvid = ComputeGuid (stream.value);
 						writer.PatchMvid (module.Mvid);
 					}
