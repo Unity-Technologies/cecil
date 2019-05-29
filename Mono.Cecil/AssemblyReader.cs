@@ -1,4 +1,4 @@
-﻿//
+//
 // Author:
 //   Jb Evain (jbevain@gmail.com)
 //
@@ -104,8 +104,14 @@ namespace Mono.Cecil {
 					? symbol_reader_provider.GetSymbolReader (module, parameters.SymbolStream)
 					: symbol_reader_provider.GetSymbolReader (module, module.FileName);
 
-				if (reader != null)
-					module.ReadSymbols (reader);
+				if (reader != null) {
+					try {
+						module.ReadSymbols (reader);
+					} catch (Exception) {
+						reader.Dispose ();
+						throw;
+					}
+				}
 			}
 
 			if (module.Image.HasDebugTables ())
