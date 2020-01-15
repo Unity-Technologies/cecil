@@ -135,7 +135,8 @@ namespace Mono.Cecil {
 				if (projections != null)
 					return projections;
 
-				return projections = new Dictionary<string, ProjectionInfo> {
+
+				var new_projections = new Dictionary<string, ProjectionInfo> {
 					{ "AttributeTargets", new ProjectionInfo ("Windows.Foundation.Metadata", "System", "AttributeTargets", "System.Runtime") },
 					{ "AttributeUsageAttribute", new ProjectionInfo ("Windows.Foundation.Metadata", "System", "AttributeUsageAttribute", "System.Runtime", attribute: true) },
 					{ "Color", new ProjectionInfo ("Windows.UI", "Windows.UI", "Color", "System.Runtime.WindowsRuntime") },
@@ -187,6 +188,9 @@ namespace Mono.Cecil {
 					{ "Vector3", new ProjectionInfo ("Windows.Foundation.Numerics", "System.Numerics", "Vector3", "System.Numerics.Vectors") },
 					{ "Vector4", new ProjectionInfo ("Windows.Foundation.Numerics", "System.Numerics", "Vector4", "System.Numerics.Vectors") },
 				};
+
+				Interlocked.CompareExchange (ref projections, new_projections, null);
+				return projections;
 			}
 		}
 
