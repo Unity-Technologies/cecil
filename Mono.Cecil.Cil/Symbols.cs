@@ -714,7 +714,7 @@ namespace Mono.Cecil.Cil {
 			var offset_mapping = new Dictionary<int, SequencePoint> (sequence_points.Count);
 
 			for (int i = 0; i < sequence_points.Count; i++)
-				offset_mapping.Add (sequence_points [i].Offset, sequence_points [i]);
+				offset_mapping[sequence_points [i].Offset] = sequence_points [i];
 
 			var instructions = method.Body.Instructions;
 
