@@ -1,6 +1,12 @@
 Cecil
 =====
 
+This is Unity's fork of Cecil. These are the branches specific to Unity's use of this fork:
+
+* [`unity-master`](https://github.com/Unity-Technologies/cecil/tree/unity-master) - the default branch. Builds from this branch should be used in Unity.
+* [`master`](https://github.com/Unity-Technologies/cecil/tree/master) - this branch should track the upstream `master` branch in https://github.com/jbevain/cecil
+* [`master-legacy`](https://github.com/Unity-Technologies/cecil/tree/master-legacy) - this is an unused branch that reflects `master` before it was switched to track upstream master
+
 Mono.Cecil is a library to generate and inspect programs and libraries in the ECMA CIL form.
 
 To put it simply, you can use Cecil to:
