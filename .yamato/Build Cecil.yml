@@ -1,0 +1,20 @@
+name: Build Cecil
+
+agent:
+  type: Unity::VM
+  image: platform-foundation/windows-vs2019-il2cpp-bokken:stable
+  flavor: b1.xlarge
+
+commands:
+  - build.bat
+
+artifacts: 
+  builds:
+    paths:
+      - builds.7z
+
+triggers:
+  pull_requests:
+    - targets:
+        only:
+          - "unity-master"
