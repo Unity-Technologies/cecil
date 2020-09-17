@@ -4,6 +4,7 @@ set LIBDIR=%BUILDDIR%\lib
 set LIBDIR35=%LIBDIR%\net35
 set LIBDIR40=%LIBDIR%\net40
 set MSBUILD="C:\Program Files (x86)\MSBuild\14.0\Bin\MSBuild.exe"
+set SEVENZIP="C:\Program Files\7-Zip\7z.exe"
 
 ::Setup Directories
 mkdir %BUILDDIR%
@@ -30,13 +31,6 @@ call:CleanupBuild %LIBDIR35%
 %MSBUILD% "%BASEDIR%\Mono.Cecil.sln" /t:Build /p:Configuration=net_4_0_Release /p:Platform="Any CPU" /p:OutputPath=%LIBDIR40%
 call:CleanupBuild %LIBDIR40%
 
-7z a -tzip -r %BASEDIR%/builds.zip %BUILDDIR%/*
+%SEVENZIP% a -m0=lzma -r %BASEDIR%/builds.7z %BUILDDIR%/*
 
-::--------------------------------------------------
-::----------------- Functions ----------------------
-::--------------------------------------------------
-:CleanupBuild
-cd %~1
-del *.Tests.*
-del nunit.*
 goto:eof
