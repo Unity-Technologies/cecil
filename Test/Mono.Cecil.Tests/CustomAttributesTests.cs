@@ -494,6 +494,30 @@ namespace Mono.Cecil.Tests {
 				Assert.AreEqual (1, (int)((CustomAttributeArgument)arg.Value).Value);
 			});
 		}
+		
+		[Test]
+		public void EnumDeclaredInGenericTypeArray ()
+		{
+			TestCSharp ("CustomAttributes.cs", module => {
+				var type = module.GetType ("WithAttributeUsingNestedEnumArray");
+				var attributes = type.CustomAttributes;
+				Assert.AreEqual (1, attributes.Count);
+				var attribute = attributes [0];
+				Assert.AreEqual (1, attribute.Fields.Count);
+				var arg = attribute.Fields [0].Argument;
+				Assert.AreEqual ("System.Object", arg.Type.FullName);
+				
+				var argumentValue = (CustomAttributeArgument)arg.Value;
+				Assert.AreEqual ("GenericClassWithEnum`1/MyEnum<System.String>[]", argumentValue.Type.FullName);
+				var argumentValues = (CustomAttributeArgument [])argumentValue.Value;
+				
+				Assert.AreEqual ("GenericClassWithEnum`1/MyEnum<System.String>", argumentValues[0].Type.FullName);
+				Assert.AreEqual (1, (int)argumentValues[0].Value);
+				
+				Assert.AreEqual ("GenericClassWithEnum`1/MyEnum<System.String>", argumentValues[1].Type.FullName);
+				Assert.AreEqual (2, (int)argumentValues[1].Value);
+			});
+		}
 
 		[Test]
 		public void OrderedAttributes ()

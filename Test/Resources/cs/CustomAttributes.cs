@@ -165,8 +165,18 @@ class NullCharInString {
 class WithAttributeUsingNestedEnum {
 }
 
+[Foo (Pan = new [] { GenericClassWithEnum<string>.MyEnum.One, GenericClassWithEnum<string>.MyEnum.Two })]
+class WithAttributeUsingNestedEnumArray {
+}
+
 class GenericClassWithEnum<T> {
 	public enum MyEnum {
 		One = 1,
+		Two = 2
 	}
+}
+
+public enum MyEnum2 {
+	One = 1,
+	Two = 2
 }
