@@ -160,3 +160,13 @@ class Parent {
 [Foo ("Foo\0Bar\0")]
 class NullCharInString {
 }
+
+[Foo (Pan = GenericClassWithEnum<string>.MyEnum.One)]
+class WithAttributeUsingNestedEnum {
+}
+
+class GenericClassWithEnum<T> {
+	public enum MyEnum {
+		One = 1,
+	}
+}

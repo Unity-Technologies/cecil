@@ -478,6 +478,22 @@ namespace Mono.Cecil.Tests {
 				Assert.AreEqual ('\0', value [7]);
 			});
 		}
+		
+		[Test]
+		public void EnumDeclaredInGenericType ()
+		{
+			TestCSharp ("CustomAttributes.cs", module => {
+				var type = module.GetType ("WithAttributeUsingNestedEnum");
+				var attributes = type.CustomAttributes;
+				Assert.AreEqual (1, attributes.Count);
+				var attribute = attributes [0];
+				Assert.AreEqual (1, attribute.Fields.Count);
+				var arg = attribute.Fields [0].Argument;
+				Assert.AreEqual ("System.Object", arg.Type.FullName);
+				Assert.AreEqual ("GenericClassWithEnum`1/MyEnum<System.String>", ((CustomAttributeArgument)arg.Value).Type.FullName);
+				Assert.AreEqual (1, (int)((CustomAttributeArgument)arg.Value).Value);
+			});
+		}
 
 		[Test]
 		public void OrderedAttributes ()
