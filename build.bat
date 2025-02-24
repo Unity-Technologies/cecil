@@ -25,12 +25,19 @@ git branch >> %BUILDDIR%\version.txt
 git log -n 1 --pretty=format:%%H >> %BUILDDIR%\version.txt
 
 ::Build Cecil for .NET 3.5
-%MSBUILD% "%BASEDIR%\Mono.Cecil.sln" /t:Build /p:Configuration=net_3_5_Release /p:Platform="Any CPU" /p:OutputPath=%LIBDIR35%
+%MSBUILD% "%BASEDIR%\Mono.Cecil.sln" /t:Build /p:Configuration=net_3_5_Release /p:Platform="Any CPU" /p:OutputPath=%LIBDIR35% || goto failure
 call:CleanupBuild %LIBDIR35%
 ::Build Cecil for .NET 4.0
-%MSBUILD% "%BASEDIR%\Mono.Cecil.sln" /t:Build /p:Configuration=net_4_0_Release /p:Platform="Any CPU" /p:OutputPath=%LIBDIR40%
+%MSBUILD% "%BASEDIR%\Mono.Cecil.sln" /t:Build /p:Configuration=net_4_0_Release /p:Platform="Any CPU" /p:OutputPath=%LIBDIR40% || goto failure
 call:CleanupBuild %LIBDIR40%
 
-%SEVENZIP% a -m0=lzma -r %BASEDIR%/builds.7z %BUILDDIR%/*
+%SEVENZIP% a -m0=lzma -r %BASEDIR%/builds.7z %BUILDDIR%/* || goto failure
+
+goto:eof
+
+:failure
+echo Last failure exit code %errorlevel%
+exit /b 1
+
 
 goto:eof
