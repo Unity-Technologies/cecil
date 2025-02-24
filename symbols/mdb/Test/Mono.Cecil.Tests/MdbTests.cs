@@ -3,6 +3,7 @@ using Mono.Cecil.Mdb;
 
 using NUnit.Framework;
 using System.IO;
+using Mono.Cecil.Cil;
 
 namespace Mono.Cecil.Tests {
 
