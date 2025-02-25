@@ -2,7 +2,7 @@ set BASEDIR=%~dp0
 set BUILDDIR=%BASEDIR%builds
 set LIBDIR=%BUILDDIR%\lib
 set LIBDIR40=%LIBDIR%\net40
-set MSBUILD="C:\Program Files (x86)\MSBuild\14.0\Bin\MSBuild.exe"
+set MSBUILD=dotnet msbuild
 set SEVENZIP="C:\Program Files\7-Zip\7z.exe"
 
 ::Setup Directories
