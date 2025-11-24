@@ -2,6 +2,7 @@ set BASEDIR=%~dp0
 set BUILDDIR=%BASEDIR%builds
 set LIBDIR=%BUILDDIR%\lib
 set LIBDIR40=%LIBDIR%\net40
+set LIBDIRSTANDARD=%LIBDIR%\netstandard13
 set MSBUILD=dotnet msbuild
 set SEVENZIP="C:\Program Files\7-Zip\7z.exe"
 
@@ -25,6 +26,9 @@ git log -n 1 --pretty=format:%%H >> %BUILDDIR%\version.txt
 ::Build Cecil for .NET 4.0
 %MSBUILD% "%BASEDIR%\Mono.Cecil.sln" /t:Build /p:Configuration=net_4_0_Release /p:Platform="Any CPU" /p:OutputPath=%LIBDIR40% || goto failure
 call:CleanupBuild %LIBDIR40%
+
+::Also build it for netstandard
+%MSBUILD% "%BASEDIR%\Mono.Cecil.sln" /t:Build /p:Configuration=netstandard_Release /p:Platform="Any CPU" /p:OutputPath=%LIBDIRSTANDARD% || goto failure
 
 %SEVENZIP% a -m0=lzma -r %BASEDIR%/builds.7z %BUILDDIR%/* || goto failure
 
