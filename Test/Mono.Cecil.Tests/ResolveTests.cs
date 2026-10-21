@@ -333,6 +333,113 @@ namespace Mono.Cecil.Tests {
 		}
 
 		[Test]
+		public void DefaultAssemblyResolverResolvedByManyThreads ()
+		{
+			const int threads = 8;
+
+			for (int round = 0; round < 100; round++) {
+				var resolver = new DefaultAssemblyResolver ();
+				resolver.AddSearchDirectory (Path.GetDirectoryName (typeof (ModuleDefinition).Assembly.Location));
+				var name = AssemblyNameReference.Parse (typeof (ModuleDefinition).Assembly.FullName);
+
+				var results = new AssemblyDefinition [threads];
+				var errors = new Exception [threads];
+				var barrier = new Barrier (threads);
+				var workers = new Thread [threads];
+				for (int i = 0; i < threads; i++) {
+					var index = i;
+					workers [i] = new Thread (() => {
+						try {
+							Assert.IsTrue (barrier.SignalAndWait (TimeSpan.FromSeconds (30)));
+							results [index] = resolver.Resolve (name);
+						} catch (Exception e) {
+							errors [index] = e;
+						}
+					}) { IsBackground = true };
+					workers [i].Start ();
+				}
+
+				foreach (var worker in workers)
+					Assert.IsTrue (worker.Join (TimeSpan.FromSeconds (30)));
+
+				foreach (var error in errors)
+					Assert.IsNull (error);
+
+				Assert.AreEqual (1, results.Distinct ().Count ());
+				resolver.Dispose ();
+			}
+		}
+
+		// Concurrent first resolutions of one name each read the assembly. All callers must get the instance that was cached, it
+		// must still be usable, and every other copy must have been disposed.
+		[Test]
+		public void ConcurrentResolvesOfOneNameReturnOneUsableInstanceAndDisposeTheRest ()
+		{
+			const int threads = 8;
+			var name = AssemblyNameReference.Parse (typeof (ModuleDefinition).Assembly.FullName);
+
+			for (int round = 0; round < 50; round++) {
+				var resolver = new ReadRecordingResolver ();
+				resolver.AddSearchDirectory (Path.GetDirectoryName (typeof (ModuleDefinition).Assembly.Location));
+
+				var results = new AssemblyDefinition [threads];
+				var errors = new Exception [threads];
+				var barrier = new Barrier (threads);
+				var workers = new Thread [threads];
+				for (int i = 0; i < threads; i++) {
+					var index = i;
+					workers [i] = new Thread (() => {
+						try {
+							Assert.IsTrue (barrier.SignalAndWait (TimeSpan.FromSeconds (30)));
+							results [index] = resolver.Resolve (name);
+						} catch (Exception e) {
+							errors [index] = e;
+						}
+					}) { IsBackground = true };
+					workers [i].Start ();
+				}
+
+				foreach (var worker in workers)
+					Assert.IsTrue (worker.Join (TimeSpan.FromSeconds (30)));
+
+				foreach (var error in errors)
+					Assert.IsNull (error);
+
+				var returned = results.Distinct ().Single ();
+				Assert.IsTrue (CanReadMethodBody (returned), "the returned assembly was disposed");
+
+				foreach (var read in resolver.Reads.Where (r => r != returned))
+					Assert.IsFalse (CanReadMethodBody (read), "a copy that lost the race was not disposed");
+
+				resolver.Dispose ();
+			}
+		}
+
+		static bool CanReadMethodBody (AssemblyDefinition assembly)
+		{
+			try {
+				var method = assembly.MainModule.Types.SelectMany (t => t.Methods).First (m => m.HasBody);
+				return method.Body.Instructions.Count > 0;
+			} catch (ObjectDisposedException) {
+				return false;
+			}
+		}
+
+		class ReadRecordingResolver : DefaultAssemblyResolver {
+
+			public readonly List<AssemblyDefinition> Reads = new List<AssemblyDefinition> ();
+
+			public override AssemblyDefinition Resolve (AssemblyNameReference name, ReaderParameters parameters)
+			{
+				var assembly = base.Resolve (name, parameters);
+				lock (Reads)
+					Reads.Add (assembly);
+
+				return assembly;
+			}
+		}
+
+		[Test]
 		public void NestedTypeForwarder ()
 		{
 			var resolver = new CustomResolver ();

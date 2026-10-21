@@ -27,11 +27,27 @@ namespace Mono.Cecil {
 			Mixin.CheckName (name);
 
 			AssemblyDefinition assembly;
-			if (cache.TryGetValue (name.FullName, out assembly))
-				return assembly;
+			lock (cache) {
+				if (cache.TryGetValue (name.FullName, out assembly))
+					return assembly;
+			}
 
+			// Not under the lock: a subclass or a ResolveFailure handler can resolve other assemblies while this one is read,
+			// and concurrent misses of one name each read it, the first one stored is the one that is kept
 			assembly = base.Resolve (name);
-			cache [name.FullName] = assembly;
+
+			lock (cache) {
+				AssemblyDefinition cached;
+				if (cache.TryGetValue (name.FullName, out cached) && cached != assembly) {
+					// Another thread resolved it first
+					if (assembly != null)
+						assembly.Dispose ();
+
+					return cached;
+				}
+
+				cache [name.FullName] = assembly;
+			}
 
 			return assembly;
 		}
@@ -42,18 +58,22 @@ namespace Mono.Cecil {
 				throw new ArgumentNullException ("assembly");
 
 			var name = assembly.Name.FullName;
-			if (cache.ContainsKey (name))
-				return;
+			lock (cache) {
+				if (cache.ContainsKey (name))
+					return;
 
-			cache [name] = assembly;
+				cache [name] = assembly;
+			}
 		}
 
 		protected override void Dispose (bool disposing)
 		{
-			foreach (var assembly in cache.Values)
-				assembly.Dispose ();
+			lock (cache) {
+				foreach (var assembly in cache.Values)
+					assembly.Dispose ();
 
-			cache.Clear ();
+				cache.Clear ();
+			}
 
 			base.Dispose (disposing);
 		}
