@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -163,6 +164,172 @@ namespace Mono.Cecil.Tests {
 			var reference = new TypeReference("MyNamespace", "MyType", module1, AssemblyNameReference.Parse(module1.Assembly.FullName), false);
 
 			Assert.Throws<InvalidOperationException>(() => { _ = reference.Resolve(); });
+		}
+
+		[Test]
+		public void TypeForwarderResolvedByTwoThreads ()
+		{
+			var target = AssemblyDefinition.CreateAssembly (new AssemblyNameDefinition ("ForwardTarget", new Version (1, 0, 0, 0)), "ForwardTarget", ModuleKind.Dll);
+			target.MainModule.Types.Add (new TypeDefinition ("ForwardTarget", "Type", TypeAttributes.Public, target.MainModule.TypeSystem.Object));
+
+			var inside = new ManualResetEvent (false);
+			var release = new ManualResetEvent (false);
+			var resolver = new BlockingResolver (target, inside, release);
+
+			var forwarder = AssemblyDefinition.CreateAssembly (
+				new AssemblyNameDefinition ("Forwarder", new Version (1, 0, 0, 0)),
+				"Forwarder",
+				new ModuleParameters { Kind = ModuleKind.Dll, AssemblyResolver = resolver });
+			var target_reference = new AssemblyNameReference ("ForwardTarget", new Version (1, 0, 0, 0));
+			forwarder.MainModule.AssemblyReferences.Add (target_reference);
+			var exported = new ExportedType ("ForwardTarget", "Type", forwarder.MainModule, target_reference) { IsForwarder = true };
+			forwarder.MainModule.ExportedTypes.Add (exported);
+
+			// The first thread stops inside Resolve, while the second one resolves the same forwarder
+			TypeDefinition first_result = null;
+			Exception first_error = null;
+			var first = new Thread (() => {
+				try {
+					first_result = exported.Resolve ();
+				} catch (Exception e) {
+					first_error = e;
+				}
+			}) { IsBackground = true };
+			first.Start ();
+
+			try {
+				Assert.IsTrue (inside.WaitOne (TimeSpan.FromSeconds (30)));
+				resolver.Block = false;
+
+				Assert.AreEqual ("ForwardTarget.Type", exported.Resolve ().FullName);
+			} finally {
+				release.Set ();
+				Assert.IsTrue (first.Join (TimeSpan.FromSeconds (30)));
+			}
+
+			Assert.IsNull (first_error);
+			Assert.AreEqual ("ForwardTarget.Type", first_result.FullName);
+		}
+
+		// The per-thread guard must be empty again when Resolve throws, or the next resolution on that thread would see a circularity
+		[Test]
+		public void CircularityGuardIsClearedWhenResolveThrows ()
+		{
+			var target = AssemblyDefinition.CreateAssembly (new AssemblyNameDefinition ("GuardTarget", new Version (1, 0, 0, 0)), "GuardTarget", ModuleKind.Dll);
+			target.MainModule.Types.Add (new TypeDefinition ("GuardTarget", "Type", TypeAttributes.Public, target.MainModule.TypeSystem.Object));
+
+			var resolver = new FailingResolver (target);
+			var forwarder = AssemblyDefinition.CreateAssembly (
+				new AssemblyNameDefinition ("GuardForwarder", new Version (1, 0, 0, 0)),
+				"GuardForwarder",
+				new ModuleParameters { Kind = ModuleKind.Dll, AssemblyResolver = resolver });
+			var target_reference = new AssemblyNameReference ("GuardTarget", new Version (1, 0, 0, 0));
+			forwarder.MainModule.AssemblyReferences.Add (target_reference);
+			var exported = new ExportedType ("GuardTarget", "Type", forwarder.MainModule, target_reference) { IsForwarder = true };
+			forwarder.MainModule.ExportedTypes.Add (exported);
+
+			Assert.Throws<AssemblyResolutionException> (() => exported.Resolve ());
+			Assert.AreEqual (0, ExportedTypesBeingResolved ());
+
+			resolver.Fail = false;
+			Assert.AreEqual ("GuardTarget.Type", exported.Resolve ().FullName);
+			Assert.AreEqual (0, ExportedTypesBeingResolved ());
+		}
+
+		[Test]
+		public void CircularityGuardIsClearedAfterACircularity ()
+		{
+			var resolver = new CustomResolver ();
+			var parameters = new ReaderParameters { AssemblyResolver = resolver };
+
+			var module1 = GetResourceModule ("TypeForwarderLoop1.dll", parameters);
+			var module2 = GetResourceModule ("TypeForwarderLoop2.dll", parameters);
+
+			resolver.Register (module1.Assembly);
+			resolver.Register (module2.Assembly);
+
+			var reference = new TypeReference ("MyNamespace", "MyType", module1, AssemblyNameReference.Parse (module1.Assembly.FullName), false);
+
+			for (int i = 0; i < 2; i++) {
+				var exception = Assert.Throws<InvalidOperationException> (() => { _ = reference.Resolve (); });
+				StringAssert.Contains ("Circularity", exception.Message);
+				Assert.AreEqual (0, ExportedTypesBeingResolved ());
+			}
+		}
+
+		// The guard is a private thread static, which holds the state of the calling thread. Before it existed, the flag was on the exported type.
+		static int ExportedTypesBeingResolved ()
+		{
+			var field = typeof (ExportedType).GetField ("resolving", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+			if (field == null)
+				return 0;
+
+			var set = (System.Collections.IEnumerable) field.GetValue (null);
+			return set == null ? 0 : set.Cast<object> ().Count ();
+		}
+
+		class FailingResolver : IAssemblyResolver {
+
+			readonly AssemblyDefinition assembly;
+
+			public volatile bool Fail = true;
+
+			public FailingResolver (AssemblyDefinition assembly)
+			{
+				this.assembly = assembly;
+			}
+
+			public AssemblyDefinition Resolve (AssemblyNameReference name)
+			{
+				return Resolve (name, new ReaderParameters ());
+			}
+
+			public AssemblyDefinition Resolve (AssemblyNameReference name, ReaderParameters parameters)
+			{
+				if (Fail)
+					throw new AssemblyResolutionException (name);
+
+				return assembly;
+			}
+
+			public void Dispose ()
+			{
+			}
+		}
+
+		class BlockingResolver : IAssemblyResolver {
+
+			readonly AssemblyDefinition assembly;
+			readonly ManualResetEvent inside;
+			readonly ManualResetEvent release;
+
+			public volatile bool Block = true;
+
+			public BlockingResolver (AssemblyDefinition assembly, ManualResetEvent inside, ManualResetEvent release)
+			{
+				this.assembly = assembly;
+				this.inside = inside;
+				this.release = release;
+			}
+
+			public AssemblyDefinition Resolve (AssemblyNameReference name)
+			{
+				return Resolve (name, new ReaderParameters ());
+			}
+
+			public AssemblyDefinition Resolve (AssemblyNameReference name, ReaderParameters parameters)
+			{
+				if (Block) {
+					inside.Set ();
+					release.WaitOne (TimeSpan.FromSeconds (30));
+				}
+
+				return assembly;
+			}
+
+			public void Dispose ()
+			{
+			}
 		}
 
 		[Test]

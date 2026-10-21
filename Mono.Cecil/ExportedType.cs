@@ -9,6 +9,7 @@
 //
 
 using System;
+using System.Collections.Generic;
 
 namespace Mono.Cecil {
 
@@ -22,7 +23,9 @@ namespace Mono.Cecil {
 		int identifier;
 		ExportedType declaring_type;
 		internal MetadataToken token;
-		bool reentrancyGuard;
+		// Per thread, so that two threads resolving the same forwarder do not look like a circularity
+		[ThreadStatic]
+		static HashSet<ExportedType> resolving;
 
 		public string Namespace {
 			get { return @namespace; }
@@ -228,16 +231,15 @@ namespace Mono.Cecil {
 
 		public TypeDefinition Resolve ()
 		{
-			if (reentrancyGuard) {
+			var set = resolving ?? (resolving = new HashSet<ExportedType> ());
+			if (!set.Add (this))
 				throw new InvalidOperationException ($"Circularity when resolving exported type: '{this}'");
-			}
 
-			reentrancyGuard = true;
 			try {
 				return module.Resolve (CreateReference ());
 			}
 			finally {
-				reentrancyGuard = false;
+				set.Remove (this);
 			}
 		}
 
