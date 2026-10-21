@@ -387,7 +387,8 @@ namespace Mono.Cecil {
 			get {
 				if (assembly_resolver.value == null) {
 					lock (module_lock) {
-						assembly_resolver = Disposable.Owned (new DefaultAssemblyResolver () as IAssemblyResolver);
+						if (assembly_resolver.value == null)
+							assembly_resolver = Disposable.Owned (new DefaultAssemblyResolver () as IAssemblyResolver);
 					}
 				}
 
