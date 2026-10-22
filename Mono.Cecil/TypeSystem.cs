@@ -95,18 +95,23 @@ namespace Mono.Cecil {
 				if (core_library != null)
 					return core_library;
 
-				if (module.TryGetCoreLibraryReference (out core_library))
-					return core_library;
+				lock (module.SyncRoot) {
+					if (core_library != null)
+						return core_library;
 
-				core_library = new AssemblyNameReference {
-					Name = Mixin.mscorlib,
-					Version = GetCorlibVersion (),
-					PublicKeyToken = new byte [] { 0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89 },
-				};
+					AssemblyNameReference reference;
+					if (!module.TryGetCoreLibraryReference (out reference)) {
+						reference = new AssemblyNameReference {
+							Name = Mixin.mscorlib,
+							Version = GetCorlibVersion (),
+							PublicKeyToken = new byte [] { 0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89 },
+						};
 
-				module.AssemblyReferences.Add (core_library);
+						module.AssemblyReferences.Add (reference);
+					}
 
-				return core_library;
+					return core_library = reference;
+				}
 			}
 
 			Version GetCorlibVersion ()
