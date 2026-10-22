@@ -74,7 +74,7 @@ namespace Mono.Cecil {
 
 		internal CustomAttributeValueProjection projection;
 		readonly internal uint signature;
-		internal bool resolved;
+		internal volatile bool resolved;
 		MethodReference constructor;
 		byte [] blob;
 		internal Collection<CustomAttributeArgument> arguments;
@@ -195,26 +195,56 @@ namespace Mono.Cecil {
 			if (resolved || !HasImage)
 				return;
 
-			lock (Module.SyncRoot) {
+			// Decode into a copy without holding the module lock, then publish it under the lock. Decoding resolves the types of
+			// enum arguments, which can take the lock of the module defining them, and two modules doing that to each other deadlock.
+			// The decoder must only use the signature blob and members that lock for themselves, not the module reader's state.
+			var module = Module;
+			var decoded = new CustomAttribute (signature, constructor);
+			var decoding_failed = false;
+			try {
+				module.reader.ReadCustomAttributeSignature (decoded);
+			} catch (ResolutionException) {
+				decoding_failed = true;
+			}
+
+			lock (module.SyncRoot) {
 				if (resolved)
 					return;
 
-				Module.Read (this, (attribute, reader) => {
-					try {
-						reader.ReadCustomAttributeSignature (attribute);
-						resolved = true;
-					} catch (ResolutionException) {
-						if (arguments != null)
-							arguments.Clear ();
-						if (fields != null)
-							fields.Clear ();
-						if (properties != null)
-							properties.Clear ();
+				if (decoding_failed) {
+					if (arguments != null)
+						arguments.Clear ();
+					if (fields != null)
+						fields.Clear ();
+					if (properties != null)
+						properties.Clear ();
 
-						resolved = false;
-					}
-				});
+					return;
+				}
+
+				// Collections already handed out receive the decoded values, as when the decoder filled them in place.
+				// resolved is written last, and it is volatile, so a reader that sees it set sees the collections
+				if (decoded.arguments != null)
+					arguments = decoded.arguments;
+				Publish (ref fields, decoded.fields);
+				Publish (ref properties, decoded.properties);
+				resolved = true;
 			}
+		}
+
+		// The getters install an empty collection with CompareExchange, without the lock, and may already have handed it out.
+		// Fill that one, as the decoder used to, and never write over it, which would also write back a null that was read before
+		static void Publish (ref Collection<CustomAttributeNamedArgument> collection, Collection<CustomAttributeNamedArgument> decoded)
+		{
+			if (decoded == null)
+				return;
+
+			var current = Interlocked.CompareExchange (ref collection, decoded, null);
+			if (current == null)
+				return;
+
+			for (int i = 0; i < decoded.Count; i++)
+				current.Add (decoded [i]);
 		}
 	}
 }
