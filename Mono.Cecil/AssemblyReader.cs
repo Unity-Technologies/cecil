@@ -1325,7 +1325,15 @@ namespace Mono.Cecil {
 			return reader.ReadTypeSignature ();
 		}
 
-		public int ReadFieldRVA (FieldDefinition field)
+		public bool HasFieldRVA (FieldDefinition field)
+		{
+			InitializeFieldRVAs ();
+
+			return metadata.FieldRVAs.ContainsKey (field.token.RID);
+		}
+
+		// The caller computes size with GetFieldTypeSize, which can resolve the field type, before taking the module lock
+		public int ReadFieldRVA (FieldDefinition field, int size)
 		{
 			InitializeFieldRVAs ();
 			var rid = field.token.RID;
@@ -1333,8 +1341,6 @@ namespace Mono.Cecil {
 			RVA rva;
 			if (!metadata.FieldRVAs.TryGetValue (rid, out rva))
 				return 0;
-
-			var size = GetFieldTypeSize (field.FieldType);
 
 			if (size == 0 || rva == 0)
 				return 0;
@@ -1351,7 +1357,7 @@ namespace Mono.Cecil {
 			return image.GetReaderAt (rva, size, (s, reader) => reader.ReadBytes (s)) ?? Empty<byte>.Array;
 		}
 
-		static int GetFieldTypeSize (TypeReference type)
+		public static int GetFieldTypeSize (TypeReference type)
 		{
 			int size = 0;
 

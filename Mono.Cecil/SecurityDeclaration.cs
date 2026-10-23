@@ -98,7 +98,7 @@ namespace Mono.Cecil {
 		byte [] blob;
 		readonly ModuleDefinition module;
 
-		internal bool resolved;
+		internal volatile bool resolved;
 		SecurityAction action;
 		internal Collection<SecurityAttribute> security_attributes;
 
@@ -166,12 +166,15 @@ namespace Mono.Cecil {
 			if (resolved || !HasImage)
 				return;
 
-			lock (module.SyncRoot) {
+			// Decode into a copy without holding the module lock, as CustomAttribute.Resolve does
+			var decoded = new SecurityDeclaration (action, signature, module);
+			module.reader.ReadSecurityDeclarationSignature (decoded);
 
+			lock (module.SyncRoot) {
 				if (resolved)
 					return;
 
-				module.Read (this, (declaration, reader) => reader.ReadSecurityDeclarationSignature (declaration));
+				security_attributes = decoded.security_attributes;
 				resolved = true;
 			}
 		}

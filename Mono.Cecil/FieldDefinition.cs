@@ -84,7 +84,20 @@ namespace Mono.Cecil {
 			lock (Module.SyncRoot) {
 				if (rva != Mixin.NotResolvedMarker)
 					return;
-				rva = Module.Read (this, (field, reader) => reader.ReadFieldRVA (field));
+				if (!Module.Read (this, (field, reader) => reader.HasFieldRVA (field))) {
+					rva = 0;
+					return;
+				}
+			}
+
+			// Sizing a value type resolves it, which can take the lock of the module defining it, so this module's lock
+			// is not held meanwhile
+			var size = MetadataReader.GetFieldTypeSize (FieldType);
+
+			lock (Module.SyncRoot) {
+				if (rva != Mixin.NotResolvedMarker)
+					return;
+				rva = Module.Read (this, (field, reader) => reader.ReadFieldRVA (field, size));
 			}
 		}
 
