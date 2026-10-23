@@ -14,6 +14,7 @@ namespace Mono.Cecil.Tests {
 
 	// Tests for decoding blobs without holding the module lock: that concurrent decodes of one module agree with a serial
 	// read, and that a failed decode followed by a successful one behaves as it did when the decoder held the lock.
+	// They all resolve through AssemblyCacheResolver, which is what a consumer that reads from several threads looks like.
 	[TestFixture]
 	public class ModuleLockStressTests : BaseTestFixture {
 
@@ -108,7 +109,7 @@ namespace Mono.Cecil.Tests {
 
 			var first_inside = new ManualResetEventSlim ();
 			var release_first = new ManualResetEventSlim ();
-			var resolver = new HookResolver ();
+			var resolver = new AssemblyCacheResolver ();
 			var parameters = new ReaderParameters (ReadingMode.Deferred) { AssemblyResolver = resolver };
 			resolver.Add (AssemblyDefinition.ReadAssembly (new MemoryStream (WriteToBytes (target)), parameters));
 			resolver.Add (AssemblyDefinition.ReadAssembly (new MemoryStream (WriteToBytes (forwarder)), parameters));
@@ -168,7 +169,7 @@ namespace Mono.Cecil.Tests {
 		public void CollectionsHandedOutWhileUnresolvableReceiveTheArgumentsLater ()
 		{
 			var b_bytes = BuildStressB ();
-			var b_resolver = new HookResolver ();
+			var b_resolver = new AssemblyCacheResolver ();
 			var b = AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), new ReaderParameters { AssemblyResolver = b_resolver });
 			b_resolver.Add (b);
 
@@ -190,11 +191,11 @@ namespace Mono.Cecil.Tests {
 			var a_bytes = WriteToBytes (a);
 
 			var resolvable = false;
-			var resolver = new HookResolver ();
+			var resolver = new AssemblyCacheResolver ();
 			var parameters = new ReaderParameters (ReadingMode.Deferred) { AssemblyResolver = resolver };
 			resolver.Add (AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), parameters));
 			var read = AssemblyDefinition.ReadAssembly (new MemoryStream (a_bytes), parameters);
-			resolver.Filter = name => resolvable || name.Name != "StressB";
+			resolver.Unavailable = name => !resolvable && name.Name == "StressB";
 
 			var attribute = read.MainModule.GetType ("Unresolvable.Holder").CustomAttributes [0];
 			var fields = attribute.Fields;
@@ -220,13 +221,12 @@ namespace Mono.Cecil.Tests {
 			var b_bytes = BuildDecodeEnumAssembly ();
 			var a_bytes = BuildDecodeUser (b_bytes, enum_constructor_argument: false);
 
-			AssemblyDefinition b = null;
 			var resolvable = false;
-			var resolver = new DefaultAssemblyResolver ();
-			resolver.ResolveFailure += (sender, name) => resolvable && name.Name == "DecodeB" ? b : null;
+			var resolver = new AssemblyCacheResolver { ThrowWhenUnavailable = true };
 			var parameters = new ReaderParameters (ReadingMode.Deferred) { AssemblyResolver = resolver };
-			b = AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), parameters);
+			resolver.Add (AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), parameters));
 			var a = AssemblyDefinition.ReadAssembly (new MemoryStream (a_bytes), parameters);
+			resolver.Unavailable = name => !resolvable && name.Name == "DecodeB";
 			var attribute = a.MainModule.GetType ("DecodeA.Holder").CustomAttributes [0];
 
 			Assert.Throws<AssemblyResolutionException> (() => { _ = attribute.Fields; });
@@ -247,11 +247,11 @@ namespace Mono.Cecil.Tests {
 			var b_bytes = BuildDecodeEnumAssembly ();
 			var a_bytes = BuildDecodeUser (b_bytes, enum_constructor_argument: true);
 
-			var resolver = new HookResolver ();
+			var resolver = new AssemblyCacheResolver ();
 			var parameters = new ReaderParameters (ReadingMode.Deferred) { AssemblyResolver = resolver };
 			resolver.Add (AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), parameters));
 			var a = AssemblyDefinition.ReadAssembly (new MemoryStream (a_bytes), parameters);
-			resolver.Filter = name => name.Name != "DecodeB";
+			resolver.Unavailable = name => name.Name == "DecodeB";
 			var attribute = a.MainModule.GetType ("DecodeA.Holder").CustomAttributes [0];
 
 			var first = attribute.ConstructorArguments;
@@ -259,7 +259,7 @@ namespace Mono.Cecil.Tests {
 			Assert.AreSame (first, attribute.ConstructorArguments);
 			Assert.IsFalse (attribute.IsResolved);
 
-			resolver.Filter = null;
+			resolver.Unavailable = null;
 			Assert.AreEqual (1, attribute.ConstructorArguments.Count);
 			Assert.IsTrue (attribute.IsResolved);
 		}
@@ -276,7 +276,7 @@ namespace Mono.Cecil.Tests {
 		// Fields come before properties in the blob, so F1 is decoded before F2 needs DecodeB.
 		static byte [] BuildDecodeUser (byte [] b_bytes, bool enum_constructor_argument)
 		{
-			var b_resolver = new HookResolver ();
+			var b_resolver = new AssemblyCacheResolver ();
 			var b = AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), new ReaderParameters { AssemblyResolver = b_resolver });
 			b_resolver.Add (b);
 
@@ -309,16 +309,21 @@ namespace Mono.Cecil.Tests {
 
 		// ---------------------------------------------------------------------------------------------------- helpers
 
-		sealed class HookResolver : IAssemblyResolver {
+		// A cache of the assemblies to read, filled before any of them is read and only read from after that, which is what
+		// a consumer that reads from several threads uses. A name it does not have resolves to null, or throws when the
+		// test asks for it, and Unavailable takes a name out of the cache for the single-threaded tests. Hook is called on
+		// every resolution, on the resolving thread, so a test can hold a thread inside one.
+		sealed class AssemblyCacheResolver : IAssemblyResolver {
 
 			readonly Dictionary<string, AssemblyDefinition> assemblies = new Dictionary<string, AssemblyDefinition> ();
+
+			public bool ThrowWhenUnavailable;
+			public Func<AssemblyNameReference, bool> Unavailable;
 			public Action<AssemblyNameReference> Hook;
-			public Func<AssemblyNameReference, bool> Filter;
 
 			public void Add (AssemblyDefinition assembly)
 			{
-				lock (assemblies)
-					assemblies [assembly.Name.Name] = assembly;
+				assemblies [assembly.Name.Name] = assembly;
 			}
 
 			public AssemblyDefinition Resolve (AssemblyNameReference name)
@@ -332,13 +337,14 @@ namespace Mono.Cecil.Tests {
 				if (hook != null)
 					hook (name);
 
-				var filter = Filter;
-				if (filter != null && !filter (name))
-					return null;
-
-				AssemblyDefinition assembly;
-				lock (assemblies)
+				AssemblyDefinition assembly = null;
+				var unavailable = Unavailable;
+				if (unavailable == null || !unavailable (name))
 					assemblies.TryGetValue (name.Name, out assembly);
+
+				if (assembly == null && ThrowWhenUnavailable)
+					throw new AssemblyResolutionException (name);
+
 				return assembly;
 			}
 
@@ -356,7 +362,7 @@ namespace Mono.Cecil.Tests {
 
 		static AssemblyDefinition [] ReadPair (byte [] a_bytes, byte [] b_bytes)
 		{
-			var resolver = new HookResolver ();
+			var resolver = new AssemblyCacheResolver ();
 			var parameters = new ReaderParameters (ReadingMode.Deferred) { AssemblyResolver = resolver };
 			var b = AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), parameters);
 			var a = AssemblyDefinition.ReadAssembly (new MemoryStream (a_bytes), parameters);
@@ -393,7 +399,7 @@ namespace Mono.Cecil.Tests {
 
 		static byte [] BuildStressA (byte [] b_bytes, int holders)
 		{
-			var resolver = new HookResolver ();
+			var resolver = new AssemblyCacheResolver ();
 			var b = AssemblyDefinition.ReadAssembly (new MemoryStream (b_bytes), new ReaderParameters { AssemblyResolver = resolver });
 			resolver.Add (b);
 			var assembly = AssemblyDefinition.CreateAssembly (new AssemblyNameDefinition ("StressA", new Version (1, 0, 0, 0)), "StressA",
