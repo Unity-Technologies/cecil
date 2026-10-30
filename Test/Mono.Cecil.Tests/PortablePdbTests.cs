@@ -383,6 +383,13 @@ namespace Mono.Cecil.Tests {
 		}
 
 		[Test]
+		public void DocumentHashAlgorithmRoundTrip ()
+		{
+			foreach (var algorithm in new [] { DocumentHashAlgorithm.MD5, DocumentHashAlgorithm.SHA1, DocumentHashAlgorithm.SHA256 })
+				Assert.AreEqual (algorithm, algorithm.ToGuid ().ToHashAlgorithm ());
+		}
+
+		[Test]
 		public void EmptyPortablePdb ()
 		{
 			TestModule ("EmptyPdb.dll", module => {
